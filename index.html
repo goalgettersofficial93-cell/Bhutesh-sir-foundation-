@@ -100,6 +100,9 @@
   .icon-btn:active{ transform:translateY(0); }
 
   .breadcrumb{ display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap; font-size:0.8rem; color:var(--ink-500); font-weight:600; margin-top:0.65rem; min-height:1.1rem; }
+  .media-notice{ display:none; margin:0.75rem 0 0; padding:0.75rem 0.9rem; border:1px solid #f0c7c7; border-radius:12px; background:#fff5f5; color:#9a3d3d; font-size:0.78rem; line-height:1.45; }
+  .media-notice.show{ display:block; }
+  .media-notice strong{ color:#7f2929; }
 
   /* FOLDER GRID */
   .folder-grid{ display:flex; flex-direction:column; gap:0.85rem; margin-top:1.4rem; }
@@ -332,6 +335,10 @@
       </div>
     </div>
     <div class="breadcrumb" id="breadcrumb"></div>
+    <div class="media-notice" id="mediaNotice" role="status" aria-live="polite">
+      <strong>Video files MKV format mein hain.</strong>
+      Chrome/mobile player buffer kare to <b>Download</b> button se file download karke VLC ya Firefox mein open karein.
+    </div>
   </div>
 </header>
 
@@ -367,6 +374,26 @@ const collapseAllBtnEl = document.getElementById('collapseAllBtn');
 const statFoldersEl = document.getElementById('statFolders');
 const statFilesEl = document.getElementById('statFiles');
 const breadcrumbEl = document.getElementById('breadcrumb');
+const mediaNoticeEl = document.getElementById('mediaNotice');
+
+// The old Heroku app is gone. Its file IDs still work on the current direct
+// stream host, so only the host/path is rewritten here.
+const OLD_MEDIA_HOST = 'fs1qydv17g1-161-162e5df28a45.herokuapp.com';
+const LIVE_MEDIA_HOST = 'https://fs1enchanted-flower-68930222-873172716e82.herokuapp.com';
+
+function resolveMediaUrl(url){
+  if (!url) return url;
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === OLD_MEDIA_HOST) {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      const fileId = parts[parts.length - 1];
+      const type = parsed.pathname.indexOf('/watch/') !== -1 ? 'watch' : 'dl';
+      return LIVE_MEDIA_HOST + '/' + type + '/' + encodeURIComponent(fileId);
+    }
+  } catch (e) {}
+  return url;
+}
 
 // ================================================================
 // 4. Prep data
@@ -377,8 +404,8 @@ const folders = rawData.map(function(folder, folderIndex){
       id: folderIndex + '-' + itemIndex,
       title: item.title,
       lower: item.title.toLowerCase(),
-      video: item.video || null,
-      pdf: item.pdf || null
+      video: resolveMediaUrl(item.video || null),
+      pdf: resolveMediaUrl(item.pdf || null)
     };
   });
   return {
@@ -436,19 +463,41 @@ function createFileItemEl(item, query){
     const a = document.createElement('a');
     a.className = 'open-btn video';
     a.href = item.video; a.target = '_blank'; a.rel = 'noopener';
+    a.dataset.resourceKind = 'video';
+    a.dataset.resourceUrl = item.video;
+    a.setAttribute('aria-label', 'Open video: ' + item.title);
     a.innerHTML = ICONS.video + '<span>Video</span>';
     actions.appendChild(a);
+
+    // MKV files often buffer forever in mobile Chrome. Use the server's
+    // attachment response as a reliable fallback for VLC/Firefox.
+    const download = document.createElement('a');
+    download.className = 'open-btn pdf';
+    download.href = item.video.replace('/watch/', '/dl/');
+    download.target = '_blank'; download.rel = 'noopener';
+    download.dataset.resourceKind = 'download';
+    download.dataset.resourceUrl = download.href;
+    download.setAttribute('aria-label', 'Download video: ' + item.title);
+    download.innerHTML = ICONS.external + '<span>Download</span>';
+    actions.appendChild(download);
   }
   if (item.pdf){
     const a = document.createElement('a');
     a.className = 'open-btn pdf';
     a.href = item.pdf; a.target = '_blank'; a.rel = 'noopener';
+    a.dataset.resourceKind = 'pdf';
+    a.dataset.resourceUrl = item.pdf;
     a.innerHTML = ICONS.pdf + '<span>PDF</span>';
     actions.appendChild(a);
   }
   el.appendChild(actions);
   return el;
 }
+
+folderGridEl.addEventListener('click', function(event){
+  const resource = event.target.closest('[data-resource-kind="video"]');
+  if (resource) mediaNoticeEl.classList.add('show');
+});
 
 function populateFileList(folder, query, subsetItems){
   const items = subsetItems || folder.items;
